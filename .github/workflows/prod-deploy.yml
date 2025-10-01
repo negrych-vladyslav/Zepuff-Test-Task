@@ -1,0 +1,31 @@
+name: Production Deploy (Manual)
+
+on:
+  workflow_dispatch: 
+    inputs:
+      reason:
+        description: 'Reason for deployment'
+        required: true
+        default: 'Routine production update'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production 
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Ansible
+        run: pip install ansible
+
+      - name: Configure SSH Key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          
+      - name: Set Permissions for deploy script
+        run: chmod +x deploy.sh
+
+      - name: Run Deployment Script for PROD
+        run: ./deploy.sh main prod.zepuff-test-task.pp.ua

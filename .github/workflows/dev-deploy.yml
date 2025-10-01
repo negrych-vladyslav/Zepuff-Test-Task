@@ -1,0 +1,27 @@
+name: Dev CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - dev 
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Ansible
+        run: pip install ansible
+
+      - name: Configure SSH Key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          
+      - name: Set Permissions for deploy script
+        run: chmod +x deploy.sh
+
+      - name: Run Deployment Script for DEV
+        run: ./deploy.sh dev dev.zepuff-test-task.pp.ua

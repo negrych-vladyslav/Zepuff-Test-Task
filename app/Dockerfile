@@ -1,12 +1,12 @@
 FROM node:18-alpine
 
-WORKDIR /usr/src/app
+WORKDIR /app
 
-COPY package*.json ./
+COPY app/package*.json ./
 
 RUN npm install
 
-COPY . .
+COPY app/ .
 
 EXPOSE 3000
 

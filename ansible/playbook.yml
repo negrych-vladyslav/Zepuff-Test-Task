@@ -1,0 +1,85 @@
+- name: Deploy Node.js application via Docker Compose
+  hosts: local
+  become: yes
+  vars:
+    project_path: /opt/zepuff-project
+    dev_domain: "dev.zepuff-test-task.pp.ua"
+    prod_domain: "prod.zepuff-test-task.pp.ua"
+    cert_name: "devops-project"
+    docker_group: "docker"
+    
+  tasks:
+    - name: Install apt-transport-https
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - lsb-release
+          - gnupg
+        state: latest
+        update_cache: true
+
+    - name: Get DEB architecture
+      shell: dpkg --print-architecture
+      register: deb_architecture
+      changed_when: false 
+
+    - name: Create apt keyrings directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Add Docker apt repository (using modern signed-by method)
+      ansible.builtin.apt_repository:
+        repo: "deb [arch={{ deb_architecture.stdout }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+        filename: docker
+
+    - name: Install Docker
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose
+          - docker-compose-plugin
+        state: latest
+        update_cache: true
+
+    - name: Start and enable service docker
+      ansible.builtin.service:
+        name: docker
+        enabled: yes
+        state: started
+
+    - name: Create docker group
+      group:
+        name: "{{ docker_group }}"
+        state: present
+
+    - name: Add user to docker group
+      user:
+        name: "{{ ansible_user }}"
+        group: "{{ docker_group }}"
+    - name: Ensure project directory exists
+      file:
+        path: "{{ project_path }}"
+        state: directory
+        mode: '0755'
+
+    - name: Copy project files (docker-compose, .htpasswd, Dockerfile, app)
+      copy:
+        src: ../
+        dest: "{{ project_path }}"
+        mode: '0755'
+
+    - name: Generate Nginx config from template (nginx.conf)
+      template:
+        src: nginx.conf.j2
+        dest: "{{ project_path }}/nginx.conf"
+
+    - name: Deploy with Docker Compose
+      command:
+        cmd: docker-compose up -d --build
+        chdir: "{{ project_path }}"

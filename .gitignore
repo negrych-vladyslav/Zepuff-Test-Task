@@ -1,3 +1,19 @@
+# 1. Залежності Node.js
+node_modules/
+npm-debug.log
+
+# 2. Файли інфраструктури, які містять секрети або генеруються
+inventory                 
+.htpasswd                     
+data/                         
+nginx.conf                    
+# docker-compose.yml          # Залиште його, він потрібен для деплою
+
+# 3. Кеш Ansible та Python
+.ansible/
+.venv/
+__pycache__/
+*.pyc
 # Logs
 logs
 *.log

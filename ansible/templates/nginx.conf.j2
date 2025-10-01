@@ -1,0 +1,63 @@
+worker_processes auto;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    map $http_host $auth_realm {
+        default "Restricted Access";
+        dev.zepuff-test-task.pp.ua "Restricted Dev Access";
+        prod.zepuff-test-task.pp.ua "Restricted Prod Access";
+    }
+
+    server {
+        listen 80 default_server;
+        server_name {{ prod_domain }} {{ dev_domain }};
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+        }
+
+        location / {
+            return 301 https://$host$request_uri;
+        }
+    }
+
+    server {
+        listen 443 ssl;
+        server_name {{dev_domain}};
+
+        ssl_certificate /etc/letsencrypt/live/devops-project/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/devops-project/privkey.pem;
+        
+        auth_basic $auth_realm;
+        auth_basic_user_file /etc/nginx/.htpasswd;
+        
+        location / {
+            proxy_pass http://node-app-dev:3000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+
+    server {
+        listen 443 ssl;
+        server_name {{prod_domain}};
+
+        ssl_certificate /etc/letsencrypt/live/devops-project/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/devops-project/privkey.pem;
+
+        auth_basic $auth_realm;
+        auth_basic_user_file /etc/nginx/.htpasswd;
+
+        location / {
+            proxy_pass http://node-app-prod:3000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+}

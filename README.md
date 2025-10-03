@@ -77,7 +77,7 @@ vault_password_file = .vault_pass
 
 ```
 # Встановіть змінну перед запуском
-export BASIC_AUTH_CREDENTIALS="myuser:mypassword"
+export BASIC_AUTH_CREDENTIALS="user:password"
 
 # Запуск деплою
 bash deploy.sh main ~/.vault_pass.txt
@@ -85,20 +85,4 @@ bash deploy.sh main ~/.vault_pass.txt
 
 ### `.github/workflows/main.yml`
 
-Файл конфігурації CI/CD. Встановлює SSH-ключ та змінні оточення, включно з **ANSIBLE_HOST_KEY_CHECKING: 'false'** для надійної роботи.
-
-## ⚠️ Усунення Несправностей (Troubleshooting)
-
-| Помилка / Проблема                    | Причина                                             | Рішення                                                                                                                                                    |
-| ------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`Host key verification failed`**    | Ansible не вимкнув перевірку ключів хоста.          | Переконайтеся, що файл `ansible.cfg` є у корені репозиторію АБО що змінна `ANSIBLE_HOST_KEY_CHECKING: 'false'` встановлена у `.github/workflows/main.yml`. |
-| **`UNREACHABLE!`** (Ansible)          | Проблема з SSH-ключем або користувачем.             | Перевірте, чи коректно скопійовано `SSH_PRIVATE_KEY` у секрети та чи правильно вказано `ansible_user` в `inventory`.                                       |
-| **`curl` повертає Код 22** (Prod)     | Збій Health Check, зазвичай через 401 Unauthorized. | Перевірте, чи секрет `PROD_BASIC_AUTH` коректно встановлений у GitHub Secrets.                                                                             |
-| **`'branch' is undefined`** (Ansible) | У Playbook використовується стара змінна.           | Оновіть `ansible/playbook.yml`: замініть усі `branch` на `target_env`.                                                                                     |
-
-
-'branch' is undefined (Ansible)
-
-У Playbook використовується стара змінна.
-
-Оновіть ansible/playbook.yml: замініть усі branch на target_env.
+Файл конфігурації CI/CD. Встановлює SSH-ключ та змінні оточення, включно з **ANSIBLE_HOST_KEY_CHECKING: 'false'** для надійної роботи                      |

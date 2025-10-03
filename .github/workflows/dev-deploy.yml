@@ -33,6 +33,7 @@ jobs:
       - name: Run Deployment Script (deploy.sh)
         env:
           BASIC_AUTH_CREDENTIALS: ${{ secrets.PROD_BASIC_AUTH }}
+          ANSIBLE_HOST_KEY_CHECKING: 'false'
         run: |
           chmod +x deploy.sh
           bash deploy.sh ${{ github.ref_name }} .vault_pass

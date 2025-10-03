@@ -1,0 +1,45 @@
+name: CI/CD Deployment to GCP via Ansible
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'Production' || 'Development' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure SSH Private Key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Ansible and required dependencies
+        run: pip install ansible
+
+      - name: Create Ansible Vault Password File
+        run: echo "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > .vault_pass
+
+      - name: Run Deployment Script (deploy.sh)
+        env:
+          BASIC_AUTH_CREDENTIALS: ${{ secrets.PROD_BASIC_AUTH }}
+          ANSIBLE_HOST_KEY_CHECKING: 'false'
+        run: |
+          chmod +x deploy.sh
+          bash deploy.sh ${{ github.ref_name }} .vault_pass
+          
+      - name: Cleanup Vault Pass File
+        if: always()
+        run: rm -f .vault_pass
+

@@ -103,7 +103,7 @@
       ansible.builtin.template:
         src: "templates/nginx.prod.conf.j2"
         dest: "{{ project_path }}/nginx.conf"
-      when: branch == 'main'
+      when: branch == 'prod'
 
     - name: Template Nginx config (Dev)
       ansible.builtin.template:

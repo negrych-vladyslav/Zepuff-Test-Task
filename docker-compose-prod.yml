@@ -1,4 +1,8 @@
-version: '3.8'
+version: "3.8"
+
+networks:
+  nginx_net:
+    driver: bridge
 
 services:
   nginx-reverse-proxy:
@@ -9,14 +13,15 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
-      - ./.htpasswd:/etc/nginx/.htpasswd 
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./.htpasswd:/etc/nginx/.htpasswd:ro
       - ./data/certbot/conf:/etc/letsencrypt
       - ./data/certbot/www:/var/www/certbot
     depends_on:
-      - node-app-dev
-      - node-app-prod 
-  
+      - node-app-prod
+    networks:
+      - nginx_net
+
   certbot:
     image: certbot/certbot
     container_name: certbot
@@ -25,18 +30,11 @@ services:
       - ./data/certbot/conf:/etc/letsencrypt
       - ./data/certbot/www:/var/www/certbot
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    depends_on:
+      - nginx-reverse-proxy
+    networks:
+      - nginx_net
 
-  node-app-dev:
-    build:
-      context: .
-      dockerfile: app/Dockerfile
-    container_name: node-app-dev
-    restart: unless-stopped
-    environment:
-      - APP_BG_COLOR=green
-    expose:
-      - 3000
-  
   node-app-prod:
     build:
       context: .
@@ -47,4 +45,5 @@ services:
       - APP_BG_COLOR=purple
     expose:
       - 3000
-
+    networks:
+      - nginx_net

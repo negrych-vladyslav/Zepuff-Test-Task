@@ -1,40 +1,52 @@
 - name: Deploy Node.js application via Docker Compose
-  hosts: local
+  hosts: all
   become: yes
+
+  vars_files:
+    - vault_secrets.yml
   vars:
     project_path: /opt/zepuff-project
     dev_domain: "dev.zepuff-test-task.pp.ua"
     prod_domain: "prod.zepuff-test-task.pp.ua"
     cert_name: "devops-project"
     docker_group: "docker"
-    
+
   tasks:
     - name: Install apt-transport-https
       ansible.builtin.apt:
         name:
           - apt-transport-https
           - ca-certificates
+          - curl
+          - gnupg
           - lsb-release
           - gnupg
         state: latest
         update_cache: true
 
-    - name: Get DEB architecture
-      shell: dpkg --print-architecture
-      register: deb_architecture
-      changed_when: false 
-
     - name: Create apt keyrings directory
       ansible.builtin.file:
         path: /etc/apt/keyrings
         state: directory
-        mode: '0755'
+        mode: "0755"
+
+    - name: Download and store Docker GPG key
+      ansible.builtin.shell:
+        cmd: |
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
+      changed_when: false
+
+    - name: Get DEB architecture
+      shell: dpkg --print-architecture
+      register: deb_architecture
+      changed_when: false
 
     - name: Add Docker apt repository (using modern signed-by method)
       ansible.builtin.apt_repository:
-        repo: "deb [arch={{ deb_architecture.stdout }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        repo: "deb [arch={{ deb_architecture.stdout }} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
         state: present
         filename: docker
+        update_cache: yes
 
     - name: Install Docker
       ansible.builtin.apt:
@@ -62,24 +74,72 @@
       user:
         name: "{{ ansible_user }}"
         group: "{{ docker_group }}"
-    - name: Ensure project directory exists
-      file:
-        path: "{{ project_path }}"
+
+    - name: Ensure project directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
         state: directory
-        mode: '0755'
+        mode: "0755"
+      loop:
+        - "{{ project_path }}"
+        - "{{ project_path }}/data/certbot/conf"
+        - "{{ project_path }}/data/certbot/www"
 
-    - name: Copy project files (docker-compose, .htpasswd, Dockerfile, app)
-      copy:
-        src: ../
+    - name: Copy project files (synchronize codebase to remote)
+      ansible.builtin.synchronize:
+        mode: push
+        src: "{{ playbook_dir }}/../"
         dest: "{{ project_path }}"
-        mode: '0755'
 
-    - name: Generate Nginx config from template (nginx.conf)
-      template:
-        src: nginx.conf.j2
+    - name: Create .htpasswd file from Ansible Vault
+      ansible.builtin.copy:
+        content: "{{ basic_auth_htpasswd_content }}"
+        dest: "{{ project_path }}/.htpasswd"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Template Nginx config (Prod)
+      ansible.builtin.template:
+        src: "templates/nginx.prod.conf.j2"
         dest: "{{ project_path }}/nginx.conf"
+      when: branch == 'main'
 
-    - name: Deploy with Docker Compose
-      command:
-        cmd: docker-compose up -d --build
+    - name: Template Nginx config (Dev)
+      ansible.builtin.template:
+        src: "templates/nginx.dev.conf.j2"
+        dest: "{{ project_path }}/nginx.conf"
+      when: branch == 'dev'
+
+    - name: Run Let's Encrypt initialization script
+      ansible.builtin.command:
+        cmd: ./init-tls.sh
+        chdir: "{{ project_path }}"
+      changed_when: true
+
+    - name: Set Docker Compose files based on branch
+      ansible.builtin.set_fact:
+        compose_files: >
+          {% if branch == 'dev' %}
+          docker compose -f docker-compose-prod.yml -f docker-compose-dev.yml
+          {% else %}
+          docker compose -f docker-compose-prod.yml
+          {% endif %}
+
+    - name: Stop all existing containers (using both files for safety)
+      ansible.builtin.command:
+        cmd: docker compose -f docker-compose-prod.yml -f docker-compose-dev.yml down
+        chdir: "{{ project_path }}"
+      ignore_errors: true
+
+    - name: Deploy infrastructure using targeted Docker Compose files
+      ansible.builtin.command:
+        cmd: "{{ compose_files }} up -d --build"
+        chdir: "{{ project_path }}"
+      register: deploy_output
+
+    - name: Reload Nginx (guarantee correct certificate is loaded after initial setup or redeploy)
+      ansible.builtin.command:
+        cmd: docker compose exec nginx-reverse-proxy nginx -s reload
+      args:
         chdir: "{{ project_path }}"

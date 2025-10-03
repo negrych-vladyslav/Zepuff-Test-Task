@@ -1,55 +1,137 @@
 #!/bin/bash
 
+# ==========================================================
+# SCRIPTS DEPLOY.SH - ЄДИНА ТОЧКА ВХОДУ ДЛЯ CI/CD
+#
+# Використання: bash deploy.sh <dev|main> <шлях_до_vault_pass.txt>
+#
+# ЯК БЕЗПЕЧНО ПЕРЕДАТИ ОБЛІКОВІ ДАНІ (ВАЖЛИВО):
+# Встановіть змінну оточення перед запуском:
+# export BASIC_AUTH_CREDENTIALS="admin:your_secret_password"
+# ==========================================================
+
+# 1. Налаштування змінних та перевірка аргументів
+if [ -z "$1" ] || [ -z "$2" ]; then
+    echo "Помилка: Необхідно вказати гілку та шлях до файлу з паролем Vault."
+    echo "Використання: bash deploy.sh <dev|main> <шлях_до_vault_pass.txt>"
+    exit 1
+fi
+
 BRANCH="$1"
-DOMAIN="$2"
+VAULT_PASS_FILE="$2"
+ANSIBLE_INVENTORY="ansible/inventory"
+ANSIBLE_PLAYBOOK="ansible/playbook.yml"
 PROD_DOMAIN="prod.zepuff-test-task.pp.ua"
 DEV_DOMAIN="dev.zepuff-test-task.pp.ua"
 
-if [[ -z "$BRANCH" || -z "$DOMAIN" ]]; then
-    echo "Usage: $0 <branch> <domain>"
-    echo "Example: $0 dev dev.zepuff-test-task.pp.ua"
-    exit 1
-fi
-
-echo "--- Starting Deployment for $BRANCH branch to $DOMAIN ---"
-
-ansible-playbook ansible/playbook.yml -i inventory.ini --extra-vars "dev_domain=$DEV_DOMAIN prod_domain=$PROD_DOMAIN"
-
-if [ $? -ne 0 ]; then
-    echo "❌ ERROR: Ansible playbook failed. Deployment aborted."
-    exit 1
-fi
-
-echo "--- Post-Deployment Checks Started ---"
-
-echo "Checking HTTPS accessibility on https://$DOMAIN..."
-if curl -sL --max-time 10 "https://$DOMAIN" > /dev/null; then
-    echo "✅ HTTPS is accessible for $DOMAIN."
+# Визначаємо середовище для Ansible (main -> prod, dev -> dev)
+if [ "$BRANCH" == "main" ]; then
+    TARGET_ENV="prod"
 else
-    echo "❌ ERROR: HTTPS is not accessible on $DOMAIN (Port 443 check failed)."
-    exit 1
+    TARGET_ENV="dev"
 fi
 
-echo "Checking SSL certificate validity..."
-
-EXPIRY_DATE=$(echo | openssl s_client -servername "$DOMAIN" -connect "$DOMAIN:443" 2>/dev/null | openssl x509 -noout -enddate | cut -d'=' -f2)
-
-if [[ -n "$EXPIRY_DATE" ]]; then
-    EXPIRY_TIMESTAMP=$(date -d "$EXPIRY_DATE" +%s)
-    CURRENT_TIMESTAMP=$(date +%s)
-    
-    echo "Certificate is valid until: $EXPIRY_DATE"
-
-    if [[ "$EXPIRY_TIMESTAMP" -gt "$CURRENT_TIMESTAMP" ]]; then
-        EXPIRY_DAYS=$(( (EXPIRY_TIMESTAMP - CURRENT_TIMESTAMP) / 86400 ))
-        echo "✅ Certificate is valid. Expires in $EXPIRY_DAYS days."
-    else
-        echo "❌ WARNING: Certificate has expired on $EXPIRY_DATE!"
+# 2. Формування заголовків та КРИТИЧНА перевірка Basic Auth для Prod
+AUTH_HEADER=""
+if [ "$TARGET_ENV" == "prod" ]; then
+    if [ -z "$BASIC_AUTH_CREDENTIALS" ]; then
+        echo "=========================================================="
+        echo "❌ ПОМИЛКА: Для 'prod' необхідна змінна BASIC_AUTH_CREDENTIALS."
+        echo "=========================================================="
         exit 1
+    else
+        AUTH_HEADER="-u $BASIC_AUTH_CREDENTIALS"
     fi
-else
-    echo "❌ ERROR: Could not retrieve certificate expiry date or connection failed (check DNS/Firewall)."
+fi
+
+# ==========================================================
+# ФУНКЦІЯ ПЕРЕВІРКИ (HEALTH CHECK)
+# ==========================================================
+
+# Функція перевіряє: 
+# 1. HTTPS доступність
+# 2. Валідність сертифіката (якщо prod)
+# 3. Успішний Basic Auth (якщо prod)
+run_final_check() {
+    local domain=$1
+    local auth_data=$BASIC_AUTH_CREDENTIALS
+    local target_env=$3
+    
+    # Прапори для curl
+    local curl_flags="-s --fail -o /dev/null"
+    
+    if [ "$target_env" == "dev" ]; then
+        # Дозволяємо невалідні сертифікати для Dev (-k)
+        curl_flags="-s -k --fail -o /dev/null"
+    fi
+
+    echo "🌐 Запуск фінальної перевірки $domain (Використання: curl --fail)..."
+    
+    # Виконуємо команду, яка успішно працювала локально
+    curl $curl_flags -u "$auth_data" "https://$domain"
+
+    CURL_EXIT_CODE=$?
+
+    if [ $CURL_EXIT_CODE -eq 0 ]; then
+        echo "✅ $domain: Успіх (Код виходу 0). Усі перевірки (HTTPS, Сертифікат, Auth) пройдені."
+        return 0
+    else
+        # Обробка типових помилок
+        if [ "$target_env" == "prod" ] && [ "$CURL_EXIT_CODE" -eq 6 ]; then
+             echo "❌ $domain: Помилка 6 (Could not resolve host). Проблема з DNS або мережею."
+        elif [ "$target_env" == "prod" ] && [ "$CURL_EXIT_CODE" -eq 60 ]; then
+             echo "❌ $domain: Помилка 60 (SSL Certificate Problem). Сертифікат НЕ дійсний."
+        elif [ "$target_env" == "prod" ]; then
+             echo "❌ $domain: Провал перевірки (Код $CURL_EXIT_CODE). Можлива помилка 401 (Basic Auth) або 5xx."
+        else
+             echo "❌ $domain: Провал перевірки (Код $CURL_EXIT_CODE)."
+        fi
+        return 1
+    fi
+}
+
+# ==========================================================
+# ОСНОВНА ЛОГІКА ДЕПЛОЮ
+# ==========================================================
+
+echo "=========================================================="
+echo "🚀 Запуск деплою для гілки: $BRANCH (Середовище: $TARGET_ENV)"
+echo "=========================================================="
+
+# 3. Виконання Ansible Playbook
+ansible-playbook -i "$ANSIBLE_INVENTORY" "$ANSIBLE_PLAYBOOK" \
+    -e branch=$TARGET_ENV \
+    --vault-password-file "$VAULT_PASS_FILE"
+
+# 4. Перевірка статусу виконання Ansible
+if [ $? -ne 0 ]; then
+    echo "=========================================================="
+    echo "❌ Деплой для гілки $BRANCH завершився з помилкою Ansible."
+    echo "=========================================================="
     exit 1
 fi
 
-echo "--- Deployment and Checks Complete ---"
+echo "=========================================================="
+echo "✅ Ansible завершив роботу. Запуск Health Check..."
+echo "=========================================================="
+
+# 5. Виконання фінальної перевірки
+if [ "$TARGET_ENV" == "prod" ]; then
+    TARGET_DOMAIN="$PROD_DOMAIN"
+else
+    TARGET_DOMAIN="$DEV_DOMAIN"
+fi
+
+# Виконуємо лише одну перевірку
+TOTAL_CHECKS=1
+if run_final_check "$TARGET_DOMAIN" "$AUTH_HEADER" "$TARGET_ENV"; then
+    echo "=========================================================="
+    echo "🎉 Успіх! Деплой $BRANCH та всі перевірки пройдені."
+    echo "=========================================================="
+    exit 0
+else
+    echo "=========================================================="
+    echo "🔥 Помилка! Health Check не пройшов. CI/CD буде зупинено."
+    echo "=========================================================="
+    exit 1
+fi

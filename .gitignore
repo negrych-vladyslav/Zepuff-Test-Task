@@ -3,7 +3,6 @@ node_modules/
 npm-debug.log
 
 # 2. Файли інфраструктури, які містять секрети або генеруються
-inventory                 
 .htpasswd                     
 data/                         
 nginx.conf                    

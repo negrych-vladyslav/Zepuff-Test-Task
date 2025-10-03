@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - dev
+      - main
 
 jobs:
   deploy:
@@ -33,12 +34,11 @@ jobs:
       - name: Run Deployment Script (deploy.sh)
         env:
           BASIC_AUTH_CREDENTIALS: ${{ secrets.PROD_BASIC_AUTH }}
-          ANSIBLE_HOST_KEY_CHECKING: 'false'
         run: |
           chmod +x deploy.sh
           bash deploy.sh ${{ github.ref_name }} .vault_pass
           
-      - name: 🗑️ Cleanup Vault Pass File
+      - name: Cleanup Vault Pass File
         if: always()
         run: rm -f .vault_pass
 

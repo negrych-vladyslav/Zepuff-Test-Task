@@ -99,17 +99,10 @@
         group: root
         mode: "0644"
 
-    - name: Template Nginx config (Prod)
+    - name: Template unified Nginx config
       ansible.builtin.template:
-        src: "templates/nginx.prod.conf.j2"
+        src: "templates/nginx.conf.j2"
         dest: "{{ project_path }}/nginx.conf"
-      when: branch == 'main'
-
-    - name: Template Nginx config (Dev)
-      ansible.builtin.template:
-        src: "templates/nginx.dev.conf.j2"
-        dest: "{{ project_path }}/nginx.conf"
-      when: branch == 'dev'
 
     - name: Run Let's Encrypt initialization script
       ansible.builtin.command:
@@ -117,28 +110,23 @@
         chdir: "{{ project_path }}"
       changed_when: true
 
-    - name: Set Docker Compose files based on branch
+    - name: Define which services to deploy based on the branch
       ansible.builtin.set_fact:
-        compose_files: >
+        services_to_deploy: >-
           {% if branch == 'dev' %}
-          docker compose -f docker-compose-prod.yml -f docker-compose-dev.yml
+            node-app-dev
           {% else %}
-          docker compose -f docker-compose-prod.yml
+            nginx-reverse-proxy node-app-prod certbot 
           {% endif %}
 
-    - name: Stop all existing containers (using both files for safety)
+    - name: Deploy/update specific services without stopping others
       ansible.builtin.command:
-        cmd: docker compose -f docker-compose-prod.yml -f docker-compose-dev.yml down
-        chdir: "{{ project_path }}"
-      ignore_errors: true
-
-    - name: Deploy infrastructure using targeted Docker Compose files
-      ansible.builtin.command:
-        cmd: "{{ compose_files }} up -d --build"
+        cmd: "docker compose -f docker-compose-prod.yml -f docker-compose-dev.yml up -d --build {{ services_to_deploy }}"
+      args:
         chdir: "{{ project_path }}"
       register: deploy_output
 
-    - name: Reload Nginx (guarantee correct certificate is loaded after initial setup or redeploy)
+    - name: Reload Nginx (guarantee correct certificate is loaded)
       ansible.builtin.command:
         cmd: docker compose exec nginx-reverse-proxy nginx -s reload
       args:

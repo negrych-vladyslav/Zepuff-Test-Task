@@ -32,7 +32,7 @@ app.get('/', (req, res) => {
         </style>
     </head>
     <body>
-        <h1>Hello Test</h1>
+        <h1>Hello Dev</h1>
     </body>
     </html>
   `;

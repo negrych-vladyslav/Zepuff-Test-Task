@@ -1,11 +1,6 @@
 version: "3.8"
 
 services:
-  nginx-reverse-proxy:
-    depends_on:
-      - node-app-prod
-      - node-app-dev
-
   node-app-dev:
     build:
       context: .

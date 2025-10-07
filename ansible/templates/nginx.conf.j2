@@ -2,9 +2,7 @@
 events {}
 
 http {
-    # --- ВАЖЛИВО: Вказуємо Nginx на DNS-сервер Docker --- #
-    # Це дозволить Nginx шукати контейнери за іменами в реальному часі.
-    resolver 127.0.0.11 valid=30s; # <-- ДОДАНО
+    resolver 127.0.0.11 valid=30s; 
 
     # --- HTTP -> HTTPS Redirect (для обох доменів) ---
     server {
@@ -24,7 +22,6 @@ http {
         server_name {{ prod_domain }};
 
         ssl_certificate /etc/letsencrypt/live/{{ cert_name }}/fullchain.pem;
-        # ... інші налаштування SSL ...
         include /etc/letsencrypt/options-ssl-nginx.conf;
         ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
@@ -32,12 +29,10 @@ http {
         auth_basic_user_file /etc/nginx/.htpasswd;
 
         location / {
-            # --- ВАЖЛИВО: Використовуємо змінну для proxy_pass --- #
-            set $upstream_prod http://node-app-prod:3000; # <-- ДОДАНО
-            proxy_pass $upstream_prod;                     # <-- ЗМІНЕНО
+            set $upstream_prod http://node-app-prod:3000; 
+            proxy_pass $upstream_prod;                     
 
             proxy_set_header Host $host;
-            # ... інші proxy_set_header ...
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
@@ -50,7 +45,6 @@ http {
         server_name {{ dev_domain }};
 
         ssl_certificate /etc/letsencrypt/live/{{ cert_name }}/fullchain.pem;
-        # ... інші налаштування SSL ...
         include /etc/letsencrypt/options-ssl-nginx.conf;
         ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
@@ -58,12 +52,10 @@ http {
         auth_basic_user_file /etc/nginx/.htpasswd;
 
         location / {
-            # --- ВАЖЛИВО: Використовуємо змінну для proxy_pass --- #
-            set $upstream_dev http://node-app-dev:3000; # <-- ДОДАНО
-            proxy_pass $upstream_dev;                     # <-- ЗМІНЕНО
+            set $upstream_dev http://node-app-dev:3000; 
+            proxy_pass $upstream_dev;                     
 
             proxy_set_header Host $host;
-            # ... інші proxy_set_header ...
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
